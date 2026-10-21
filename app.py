@@ -5,8 +5,8 @@ import pandas as pd
 import requests
 import streamlit as st
 
-st.set_page_config(page_title='Onchain Intelligence Mobile v1.4', page_icon='🔎', layout='wide')
-st.title('🔎 Onchain Intelligence Mobile v1.4')
+st.set_page_config(page_title='Onchain Intelligence Mobile v1.5', page_icon='🔎', layout='wide')
+st.title('🔎 Onchain Intelligence Mobile v1.5')
 st.caption('Ücretsiz API taraması • Güvenlik ve fırsat skorları ön eleme amaçlıdır • Yatırım tavsiyesi değildir')
 DEX='https://api.dexscreener.com'
 GECKO='https://api.geckoterminal.com/api/v2'
@@ -199,11 +199,32 @@ with st.expander('⚙️ Filtreler',expanded=True):
     check=st.checkbox('GoPlus güvenlik kontrolü (Solana/BSC/Base)',value=True)
     exclude=st.checkbox('Doğrulanmış kritik riskleri ele',value=True)
     advanced=st.checkbox('Detaylı hacim/holder/sinyal analizi (ek API sorguları)',value=True)
+    st.markdown('#### 🎯 Gelişmiş fırsat filtreleri')
+    st.caption('Etkin filtrede veri eksikse token elenir. Boş bırakılan filtreler sonuçları etkilemez.')
+    f_age=st.checkbox('Token yaşı filtresini kullan',value=False)
+    age_token_max=st.number_input('Maksimum token yaşı (gün)',min_value=0.0,value=7.0,step=1.0,disabled=not f_age)
+    f_signal=st.checkbox('Alım fırsatı sinyaline göre filtrele',value=False)
+    signal_levels=st.multiselect('Kabul edilen alım sinyalleri',['Güçlü izleme','İzleme','Zayıf / veri eksik'],default=['Güçlü izleme','İzleme'],disabled=not f_signal)
+    f_top10=st.checkbox('İlk 10 holder payına göre filtrele',value=False)
+    top10_max=st.slider('İlk 10 holder maksimum payı (%)',0,100,50,disabled=not f_top10)
+    f_holders=st.checkbox('Holder sayısına göre filtrele',value=False)
+    holders_min=st.number_input('Minimum holder sayısı',min_value=0,value=100,step=50,disabled=not f_holders)
+    f_v30=st.checkbox('30 dakikalık hacim artışına göre filtrele',value=False)
+    growth30_min=st.number_input('Minimum 30dk hacim artışı (%)',value=25.0,step=5.0,disabled=not f_v30)
+    f_v60=st.checkbox('1 saatlik hacim artışına göre filtrele',value=False)
+    growth60_min=st.number_input('Minimum 1s hacim artışı (%)',value=25.0,step=5.0,disabled=not f_v60)
+    st.checkbox('Smart money net akımı filtresi (doğrulanmış veri kaynağı gerekli)',value=False,disabled=True,
+                help='Cüzdan etiketleri ve güvenilir net akım kaynağı henüz entegre edilmedi. Yanlış pozitifleri önlemek için devre dışı.')
     run=st.button('🔍 Taramayı başlat',type='primary')
 
 st.info('Yeni havuzlar + DEX profilleri/boost listeleri kullanılır. Tüm zinciri kapsamaz. Bilinmeyen güvenlik durumu güvenli demek değildir. Ücretsiz API kotaları değişebilir.')
 if run:
     if not chains or mc_min>mc_max:st.error('Ağ ve market cap aralığını düzelt.');st.stop()
+    if f_signal and not signal_levels:st.error('En az bir alım sinyali seç.');st.stop()
+    if (f_age or f_holders or f_top10) and not check:
+        st.error('Token yaşı / holder filtreleri için GoPlus güvenlik kontrolünü aç.');st.stop()
+    if (f_v30 or f_v60) and not advanced:
+        st.error('Hacim artışı filtreleri için detaylı hacim analizini aç.');st.stop()
     candidates,api_errors=discover(tuple(chains),pages)
     # Rotate candidates across chains/sources rather than taking first N only.
     by_chain={c:[x for x in candidates if x['chain']==c] for c in chains}
@@ -250,6 +271,18 @@ if run:
                     volume_note='Dakikalık hacim verisi alınamadı';api_errors.append(str(e))
             g30=growth(v30,prev30);g60=growth(v60,prev60)
             opportunity,signal_note=signal(p,risk,g30,g60,top10)
+            advanced_filters=[
+                ('Token yaşı',f_age,token_age is not None and token_age<=age_token_max),
+                ('Alım sinyali',f_signal,opportunity in signal_levels),
+                ('Top 10 holder',f_top10,top10 is not None and top10<=top10_max),
+                ('Holder sayısı',f_holders,holder_count is not None and n(holder_count)>=holders_min),
+                ('30dk hacim artışı',f_v30,g30 is not None and g30>=growth30_min),
+                ('1s hacim artışı',f_v60,g60 is not None and g60>=growth60_min),
+            ]
+            rejected=next((name for name,enabled,passed in advanced_filters if enabled and not passed),None)
+            if rejected:
+                counts['Gelişmiş filtre: '+rejected]+=1
+                continue
             rows.append({'Ağ':item['chain'],'Token':(p.get('baseToken') or {}).get('symbol','?'),'Adres':item['address'],
                          'Token yaşı (gün)':token_age,'Havuz yaşı (gün)':round(age,2),
                          'Holder sayısı':holder_count,'İlk 10 holder payı (%)':top10,'Holder veri notu':holder_note,
@@ -278,7 +311,7 @@ if run:
         st.success(f'{len(df)} token listelendi.')
         if df['Güvenlik'].isin(['Bilinmiyor','Kontrol edilmedi']).any():st.warning('Bazı tokenların güvenliği doğrulanamadı; yatırım için güvenli oldukları söylenemez.')
         st.dataframe(df,hide_index=True,use_container_width=True,column_config={'DEX URL':st.column_config.LinkColumn('DEX bağlantısı')})
-        st.download_button('⬇️ CSV indir',df.to_csv(index=False).encode('utf-8-sig'),'onchain_v14.csv','text/csv')
+        st.download_button('⬇️ CSV indir',df.to_csv(index=False).encode('utf-8-sig'),'onchain_v15.csv','text/csv')
     else:st.warning('Bu taramada sonuç bulunamadı. Teşhis raporunu incele.')
     if api_errors:
         st.warning(f'{len(api_errors)} API hatası oluştu; tarama eksik olabilir.')
