@@ -5,8 +5,8 @@ import pandas as pd
 import requests
 import streamlit as st
 
-st.set_page_config(page_title='Onchain Intelligence Mobile v1.5', page_icon='🔎', layout='wide')
-st.title('🔎 Onchain Intelligence Mobile v1.5')
+st.set_page_config(page_title='Onchain Intelligence Mobile v1.6', page_icon='🔎', layout='wide')
+st.title('🔎 Onchain Intelligence Mobile v1.6')
 st.caption('Ücretsiz API taraması • Güvenlik ve fırsat skorları ön eleme amaçlıdır • Yatırım tavsiyesi değildir')
 DEX='https://api.dexscreener.com'
 GECKO='https://api.geckoterminal.com/api/v2'
@@ -108,13 +108,23 @@ def score(p):
 def minute_volume(chain,pool_address):
     """Return completed 30/60 minute volume windows from GeckoTerminal 1m OHLCV.
     Missing/incomplete candles are not extrapolated."""
-    if not pool_address:return None,'Havuz adresi yok'
+    if not pool_address:return (None,None,None,None),'Havuz adresi yok'
     data=fetch(f'{GECKO}/networks/{NETWORKS[chain]}/pools/{pool_address}/ohlcv/minute',
                {'aggregate':1,'limit':240,'currency':'usd'})
     candles=(((data.get('data') or {}).get('attributes') or {}).get('ohlcv_list') or [])
-    if not candles:return None,'Dakikalık OHLCV bulunamadı'
+    if not candles:return (None,None,None,None),'Dakikalık OHLCV bulunamadı'
     now=int(time.time()); bucket=(now//60)*60
-    by_time={int(c[0]):n(c[5]) for c in candles if isinstance(c,list) and len(c)>=6 and int(c[0])<bucket}
+    by_time={}
+    for c in candles:
+        if not isinstance(c, (list, tuple)) or len(c)<6:
+            continue
+        try:
+            stamp=int(c[0])
+            volume=float(c[5])
+        except (ValueError, TypeError):
+            continue
+        if stamp<bucket and volume>=0:
+            by_time[stamp]=volume
     def window(minutes_ago,length):
         stamps=[bucket-60*(i+1) for i in range(minutes_ago,minutes_ago+length)]
         # Some providers omit zero-volume candles; do not interpret missing as zero.
@@ -122,7 +132,8 @@ def minute_volume(chain,pool_address):
         return sum(by_time[t] for t in stamps)
     current30,previous30=window(0,30),window(30,30)
     current60,previous60=window(0,60),window(60,60)
-    return (current30,previous30,current60,previous60),''
+    note='' if all(x is not None for x in (current30,previous30,current60,previous60)) else 'Eksik dakikalık mumlar: hacim değişimi hesaplanamayabilir'
+    return (current30,previous30,current60,previous60),note
 
 def growth(now,previous):
     if now is None or previous is None:return None
@@ -267,16 +278,17 @@ if run:
             if advanced:
                 try:
                     result = minute_volume(item['chain'], p.get('pairAddress'))
-if result is not None:
-    volumes, volume_note = result
-    if volumes is not None:
-        v30, prev30, v60, prev60 = volumes
-    else:
-        volume_note = 'Dakikalık hacim verisi eksik'
-else:
-    volume_note = 'Dakikalık hacim verisi alınamadı'
-                except APIError as e:
-                    volume_note='Dakikalık hacim verisi alınamadı';api_errors.append(str(e))
+                    if isinstance(result, tuple) and len(result) == 2:
+                        volumes, volume_note = result
+                        if isinstance(volumes, (tuple, list)) and len(volumes) == 4:
+                            v30, prev30, v60, prev60 = volumes
+                        else:
+                            volume_note = 'Dakikalık hacim verisi eksik'
+                    else:
+                        volume_note = 'Dakikalık hacim yanıtı beklenmeyen biçimde'
+                except (APIError, TypeError, ValueError, KeyError) as e:
+                    volume_note = 'Dakikalık hacim verisi alınamadı'
+                    api_errors.append(str(e))
             g30=growth(v30,prev30);g60=growth(v60,prev60)
             opportunity,signal_note=signal(p,risk,g30,g60,top10)
             advanced_filters=[
@@ -319,7 +331,7 @@ else:
         st.success(f'{len(df)} token listelendi.')
         if df['Güvenlik'].isin(['Bilinmiyor','Kontrol edilmedi']).any():st.warning('Bazı tokenların güvenliği doğrulanamadı; yatırım için güvenli oldukları söylenemez.')
         st.dataframe(df,hide_index=True,use_container_width=True,column_config={'DEX URL':st.column_config.LinkColumn('DEX bağlantısı')})
-        st.download_button('⬇️ CSV indir',df.to_csv(index=False).encode('utf-8-sig'),'onchain_v15.csv','text/csv')
+        st.download_button('⬇️ CSV indir',df.to_csv(index=False).encode('utf-8-sig'),'onchain_v16.csv','text/csv')
     else:st.warning('Bu taramada sonuç bulunamadı. Teşhis raporunu incele.')
     if api_errors:
         st.warning(f'{len(api_errors)} API hatası oluştu; tarama eksik olabilir.')
