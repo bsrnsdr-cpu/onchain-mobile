@@ -266,7 +266,15 @@ if run:
             volume_note='Detaylı analiz kapalı'
             if advanced:
                 try:
-                    (v30,prev30,v60,prev60),volume_note=minute_volume(item['chain'],p.get('pairAddress'))
+                    result = minute_volume(item['chain'], p.get('pairAddress'))
+if result is not None:
+    volumes, volume_note = result
+    if volumes is not None:
+        v30, prev30, v60, prev60 = volumes
+    else:
+        volume_note = 'Dakikalık hacim verisi eksik'
+else:
+    volume_note = 'Dakikalık hacim verisi alınamadı'
                 except APIError as e:
                     volume_note='Dakikalık hacim verisi alınamadı';api_errors.append(str(e))
             g30=growth(v30,prev30);g60=growth(v60,prev60)
